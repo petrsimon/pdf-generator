@@ -207,14 +207,14 @@ class PdfCache {
     }
 
     if (overwriteComponentStatus) {
-      this.data[collectionId].components = this.data[collectionId].components.map(
-        (component) => {
-          return {
-            ...component,
-            status,
-          };
-        },
-      );
+      this.data[collectionId].components = this.data[
+        collectionId
+      ].components.map((component) => {
+        return {
+          ...component,
+          status,
+        };
+      });
     }
     this.data[collectionId].status = status;
     this.data[collectionId].error = error;

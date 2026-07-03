@@ -45,7 +45,9 @@ export const GetPupCluster = async () => {
     if (data && typeof data === 'object' && 'collectionId' in data) {
       const collectionId = (data as { collectionId: string }).collectionId;
       const message = err instanceof Error ? err.message : String(err);
-      apiLogger.error(`Collection ${collectionId} failed after retries: ${message}`);
+      apiLogger.error(
+        `Collection ${collectionId} failed after retries: ${message}`,
+      );
       PdfCache.getInstance().invalidateCollection(collectionId, message);
     }
   });
