@@ -30,7 +30,14 @@ app.use('/', router);
 PdfCache.getInstance();
 store.intialize(StoreType.S3);
 
-const server = http.createServer({}, app).listen(PORT, () => {
+const server = http.createServer({}, app);
+
+// Increase max listeners to accommodate multiple middleware/handlers
+// (express-prom-bundle, http-context, static handlers, error handlers)
+// Default is 10, saw 11 in production logs
+server.setMaxListeners(20);
+
+server.listen(PORT, () => {
   apiLogger.info(`Listening on port ${PORT}`);
   consumeMessages(UPDATE_TOPIC).catch((error: unknown) => {
     apiLogger.error(`${error}`);
