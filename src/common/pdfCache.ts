@@ -288,7 +288,9 @@ class PdfCache {
       if (mergePromise) {
         mergePromise
           .then(() => {
-            this.updateCollectionState(collectionId, PdfStatus.Generated);
+            if (this.data[collectionId]) {
+              this.updateCollectionState(collectionId, PdfStatus.Generated);
+            }
           })
           .catch((error) => {
             apiLogger.error(`Merge failed for ${collectionId}: ${error}`);
