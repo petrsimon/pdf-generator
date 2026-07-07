@@ -240,6 +240,12 @@ class PdfCache {
   }
 
   public invalidateCollection(collectionId: string, error: string): void {
+    if (!this.data[collectionId]) {
+      apiLogger.debug(
+        `Cannot invalidate missing collection ${collectionId}: ${error}`,
+      );
+      return;
+    }
     this.updateCollectionState(collectionId, PdfStatus.Failed, error, false);
   }
 

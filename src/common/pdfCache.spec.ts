@@ -381,4 +381,16 @@ describe('invalidateCollection preserves component status', () => {
     expect(collection.components[1].status).toBe(PdfStatus.Failed);
     expect(collection.components[2].status).toBe(PdfStatus.Generating);
   });
+
+  it('should not throw when invalidating missing collection', () => {
+    const missingCollectionId = 'non-existent-collection';
+
+    // Should not throw - just log and return
+    expect(() => {
+      pdfCache.invalidateCollection(missingCollectionId, 'Collection expired');
+    }).not.toThrow();
+
+    // Collection still does not exist
+    expect(pdfCache.getCollection(missingCollectionId)).toBeUndefined();
+  });
 });
