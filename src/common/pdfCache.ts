@@ -286,7 +286,9 @@ class PdfCache {
           })
           .catch((error) => {
             apiLogger.error(`Merge failed for ${collectionId}: ${error}`);
-            this.data[collectionId].merging = false;
+            if (this.data[collectionId]) {
+              this.data[collectionId].merging = false;
+            }
           });
       }
     }
