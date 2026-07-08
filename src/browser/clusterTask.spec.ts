@@ -1,6 +1,7 @@
 import PdfCache, { PdfStatus } from '../common/pdfCache';
 import { generatePdf } from './clusterTask';
-import { AuthState, PdfRequestBody } from '../common/types';
+import { PdfRequestBody } from '../common/types';
+import { TokenManager } from './tokenRefresh';
 
 const mockPage = {
   setViewport: jest.fn(),
@@ -84,14 +85,7 @@ jest.mock('pdf-lib', () => ({
   },
 }));
 
-jest.mock('./tokenRefresh', () => ({
-  isTokenExpiringSoon: jest.fn().mockReturnValue(false),
-  refreshAccessToken: jest.fn(),
-}));
-
 const { UpdateStatus } = jest.requireMock('../server/utils');
-const { isTokenExpiringSoon, refreshAccessToken } =
-  jest.requireMock('./tokenRefresh');
 
 function makePdfRequest(
   overrides: Partial<PdfRequestBody> = {},
@@ -106,12 +100,22 @@ function makePdfRequest(
   };
 }
 
-function makeAuthState(overrides: Partial<AuthState> = {}): AuthState {
-  return {
-    authHeader: 'Bearer some-token',
-    refreshToken: 'Bearer some-refresh-token',
-    ...overrides,
-  };
+function makeJwt(exp: number): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256' })).toString(
+    'base64url',
+  );
+  const body = Buffer.from(JSON.stringify({ exp })).toString('base64url');
+  return `${header}.${body}.fake`;
+}
+
+const FRESH_TOKEN = `Bearer ${makeJwt(Math.floor(Date.now() / 1000) + 600)}`;
+const EXPIRING_TOKEN = `Bearer ${makeJwt(Math.floor(Date.now() / 1000) + 10)}`;
+
+function makeTokenManager(
+  authHeader = FRESH_TOKEN,
+  refreshToken = 'Bearer some-refresh-token',
+): TokenManager {
+  return new TokenManager(authHeader, refreshToken);
 }
 
 function initCollection(collectionId: string) {
@@ -134,7 +138,7 @@ describe('generatePdf', () => {
   describe('successful generation', () => {
     it('updates status to Generating then Generated', async () => {
       const req = makePdfRequest();
-      await generatePdf(req, 'coll-1', 1, makeAuthState());
+      await generatePdf(req, 'coll-1', 1, makeTokenManager());
 
       expect(UpdateStatus).toHaveBeenCalledTimes(2);
       expect(UpdateStatus).toHaveBeenNthCalledWith(
@@ -156,13 +160,13 @@ describe('generatePdf', () => {
     });
 
     it('closes the page after success', async () => {
-      await generatePdf(makePdfRequest(), 'coll-1', 1, makeAuthState());
+      await generatePdf(makePdfRequest(), 'coll-1', 1, makeTokenManager());
       expect(mockPage.close).toHaveBeenCalled();
     });
 
-    it('sets auth header from authState', async () => {
-      const authState = makeAuthState({ authHeader: 'Bearer my-token' });
-      await generatePdf(makePdfRequest(), 'coll-1', 1, authState);
+    it('sets auth header from token manager', async () => {
+      const tm = makeTokenManager('Bearer my-token');
+      await generatePdf(makePdfRequest(), 'coll-1', 1, tm);
 
       expect(mockPage.setExtraHTTPHeaders).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -181,7 +185,7 @@ describe('generatePdf', () => {
       initCollection('coll-err');
 
       await expect(
-        generatePdf(req, 'coll-err', 1, makeAuthState()),
+        generatePdf(req, 'coll-err', 1, makeTokenManager()),
       ).rejects.toThrow('Page render error');
 
       // UpdateStatus called once for Generating, never for Failed (catch block removed it)
@@ -198,7 +202,7 @@ describe('generatePdf', () => {
       const spy = jest.spyOn(pdfCache, 'invalidateCollection');
 
       await expect(
-        generatePdf(makePdfRequest(), 'coll-inv', 1, makeAuthState()),
+        generatePdf(makePdfRequest(), 'coll-inv', 1, makeTokenManager()),
       ).rejects.toThrow('Page render error');
 
       expect(spy).not.toHaveBeenCalled();
@@ -209,7 +213,7 @@ describe('generatePdf', () => {
       mockPage.evaluate.mockResolvedValue('Error');
       initCollection('coll-close-err');
       await expect(
-        generatePdf(makePdfRequest(), 'coll-close-err', 1, makeAuthState()),
+        generatePdf(makePdfRequest(), 'coll-close-err', 1, makeTokenManager()),
       ).rejects.toThrow();
       expect(mockPage.close).toHaveBeenCalled();
     });
@@ -225,7 +229,7 @@ describe('generatePdf', () => {
       initCollection('coll-500');
 
       await expect(
-        generatePdf(req, 'coll-500', 1, makeAuthState()),
+        generatePdf(req, 'coll-500', 1, makeTokenManager()),
       ).rejects.toThrow('Puppeteer error');
 
       // Only Generating status, no Failed
@@ -241,7 +245,7 @@ describe('generatePdf', () => {
       initCollection('coll-null');
 
       await expect(
-        generatePdf(req, 'coll-null', 1, makeAuthState()),
+        generatePdf(req, 'coll-null', 1, makeTokenManager()),
       ).rejects.toThrow('Puppeteer error');
 
       // Only Generating status, no Failed
@@ -258,7 +262,7 @@ describe('generatePdf', () => {
       initCollection('coll-timeout');
 
       await expect(
-        generatePdf(req, 'coll-timeout', 1, makeAuthState()),
+        generatePdf(req, 'coll-timeout', 1, makeTokenManager()),
       ).rejects.toThrow('timeout');
 
       // Only Generating status, no Failed
@@ -272,7 +276,7 @@ describe('generatePdf', () => {
       jest.spyOn(pdfCache, 'isCollectionFailed').mockReturnValue(true);
       const req = makePdfRequest();
 
-      await generatePdf(req, 'coll-already-failed', 1, makeAuthState());
+      await generatePdf(req, 'coll-already-failed', 1, makeTokenManager());
 
       expect(UpdateStatus).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -288,19 +292,23 @@ describe('generatePdf', () => {
   });
 
   describe('token refresh integration', () => {
-    it('refreshes token before setting headers when expiring (proactive)', async () => {
-      isTokenExpiringSoon.mockReturnValue(true);
-      refreshAccessToken.mockResolvedValue({
-        accessToken: 'Bearer refreshed-token',
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('refreshes token before setting headers when expiring', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ access_token: 'refreshed-token' }),
       });
-      const authState = makeAuthState();
+      const tm = makeTokenManager(EXPIRING_TOKEN);
 
-      await generatePdf(makePdfRequest(), 'coll-refresh', 1, authState);
+      await generatePdf(makePdfRequest(), 'coll-refresh', 1, tm);
 
-      expect(refreshAccessToken).toHaveBeenCalledWith(
-        'Bearer some-refresh-token',
-      );
-      expect(authState.authHeader).toBe('Bearer refreshed-token');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(tm.currentToken).toBe('Bearer refreshed-token');
       expect(mockPage.setExtraHTTPHeaders).toHaveBeenCalledWith(
         expect.objectContaining({
           'x-pdf-auth': 'Bearer refreshed-token',
@@ -308,107 +316,56 @@ describe('generatePdf', () => {
       );
     });
 
-    it('refreshes token after 401 response detected (reactive)', async () => {
-      type Response = {
-        status: () => number;
-        url: () => string;
-        ok: () => boolean;
-      };
-
-      type ResponseHandler = (response: Response) => Promise<void>;
-
-      isTokenExpiringSoon.mockReturnValue(false);
-      refreshAccessToken.mockResolvedValue({
-        accessToken: 'Bearer refreshed-after-401',
+    it('skips auth header on permanent refresh failure', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('invalid_grant'),
       });
-      const authState = makeAuthState({ authHeader: 'Bearer original-token' });
+      const tm = makeTokenManager(EXPIRING_TOKEN);
 
-      // Capture ALL response handlers (there are 2: 401 tracker + asset cache)
-      const responseHandlers: ResponseHandler[] = [];
-      mockPage.on.mockImplementation(
-        (event: string, handler: ResponseHandler) => {
-          if (event === 'response') {
-            responseHandlers.push(handler);
-          }
-        },
-      );
+      await generatePdf(makePdfRequest(), 'coll-no-refresh', 1, tm);
 
-      mockPage.goto.mockImplementation(async () => {
-        // Trigger 401 via first response handler (401 tracker)
-        if (responseHandlers[0]) {
-          await responseHandlers[0]({
-            status: () => 401,
-            url: () => 'http://api/endpoint',
-            ok: () => false,
-          });
-        }
-        return { status: () => 200, statusText: () => 'OK' };
-      });
-
-      await generatePdf(makePdfRequest(), 'coll-reactive', 1, authState);
-
-      expect(refreshAccessToken).toHaveBeenCalledWith(
-        'Bearer some-refresh-token',
-      );
-      expect(authState.authHeader).toBe('Bearer refreshed-after-401');
+      expect(tm.currentToken).toBe(EXPIRING_TOKEN);
       expect(mockPage.setExtraHTTPHeaders).toHaveBeenCalledWith(
-        expect.objectContaining({
-          'x-pdf-auth': 'Bearer refreshed-after-401',
-        }),
-      );
-    });
-
-    it('keeps original token when refresh fails', async () => {
-      isTokenExpiringSoon.mockReturnValue(true);
-      refreshAccessToken.mockResolvedValue(null);
-      const authState = makeAuthState({ authHeader: 'Bearer original' });
-
-      await generatePdf(makePdfRequest(), 'coll-no-refresh', 1, authState);
-
-      expect(authState.authHeader).toBe('Bearer original');
-      expect(mockPage.setExtraHTTPHeaders).toHaveBeenCalledWith(
-        expect.objectContaining({
-          'x-pdf-auth': 'Bearer original',
+        expect.not.objectContaining({
+          'x-pdf-auth': expect.anything(),
         }),
       );
     });
 
     it('does not refresh when token is still fresh', async () => {
-      isTokenExpiringSoon.mockReturnValue(false);
+      global.fetch = jest.fn();
 
-      await generatePdf(makePdfRequest(), 'coll-fresh', 1, makeAuthState());
+      await generatePdf(makePdfRequest(), 'coll-fresh', 1, makeTokenManager());
 
-      expect(refreshAccessToken).not.toHaveBeenCalled();
+      expect(global.fetch).not.toHaveBeenCalled();
     });
 
     it('does not refresh when no refresh token is available', async () => {
-      isTokenExpiringSoon.mockReturnValue(true);
-      const authState = makeAuthState({ refreshToken: undefined });
+      global.fetch = jest.fn();
+      const tm = new TokenManager(EXPIRING_TOKEN, undefined);
 
-      await generatePdf(makePdfRequest(), 'coll-no-rt', 1, authState);
+      await generatePdf(makePdfRequest(), 'coll-no-rt', 1, tm);
 
-      expect(refreshAccessToken).not.toHaveBeenCalled();
+      expect(global.fetch).not.toHaveBeenCalled();
     });
 
     it('generates successfully without refresh token', async () => {
-      isTokenExpiringSoon.mockReturnValue(false);
-      const authState = makeAuthState({ refreshToken: undefined });
+      const tm = new TokenManager(FRESH_TOKEN, undefined);
 
-      await generatePdf(makePdfRequest(), 'coll-no-rt-ok', 1, authState);
+      await generatePdf(makePdfRequest(), 'coll-no-rt-ok', 1, tm);
 
-      expect(refreshAccessToken).not.toHaveBeenCalled();
       expect(UpdateStatus).toHaveBeenLastCalledWith(
         expect.objectContaining({ status: PdfStatus.Generated }),
       );
     });
 
     it('generates successfully without any auth', async () => {
-      isTokenExpiringSoon.mockReturnValue(false);
-      const authState: AuthState = {};
+      const tm = new TokenManager(undefined, undefined);
 
-      await generatePdf(makePdfRequest(), 'coll-no-auth', 1, authState);
+      await generatePdf(makePdfRequest(), 'coll-no-auth', 1, tm);
 
-      expect(refreshAccessToken).not.toHaveBeenCalled();
       expect(UpdateStatus).toHaveBeenLastCalledWith(
         expect.objectContaining({ status: PdfStatus.Generated }),
       );
@@ -417,24 +374,56 @@ describe('generatePdf', () => {
       );
     });
 
-    it('updates shared authState so subsequent tasks see refreshed token', async () => {
-      const authState = makeAuthState();
-      isTokenExpiringSoon.mockReturnValueOnce(true).mockReturnValue(false);
-      refreshAccessToken.mockResolvedValue({
-        accessToken: 'Bearer new-shared-token',
+    it('coalesces concurrent refreshes into a single SSO call', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ access_token: 'shared-refreshed' }),
       });
+      const tm = makeTokenManager(EXPIRING_TOKEN);
 
-      await generatePdf(makePdfRequest(), 'coll-shared-1', 1, authState);
+      await Promise.all([
+        generatePdf(makePdfRequest(), 'coll-coalesce', 1, tm),
+        generatePdf(makePdfRequest(), 'coll-coalesce', 2, tm),
+      ]);
 
-      expect(authState.authHeader).toBe('Bearer new-shared-token');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(tm.currentToken).toBe('Bearer shared-refreshed');
+    });
 
-      await generatePdf(makePdfRequest(), 'coll-shared-2', 2, authState);
+    it('stops retrying SSO after permanent failure', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('invalid_grant'),
+      });
+      const tm = makeTokenManager(EXPIRING_TOKEN);
 
-      expect(mockPage.setExtraHTTPHeaders).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          'x-pdf-auth': 'Bearer new-shared-token',
-        }),
-      );
+      await generatePdf(makePdfRequest(), 'coll-perm-1', 1, tm);
+      await generatePdf(makePdfRequest(), 'coll-perm-2', 2, tm);
+
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries SSO after transient failure', async () => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          text: () => Promise.resolve('Service Unavailable'),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ access_token: 'recovered' }),
+        });
+      const tm = makeTokenManager(EXPIRING_TOKEN);
+
+      await generatePdf(makePdfRequest(), 'coll-trans-1', 1, tm);
+      expect(tm.currentToken).toBe(EXPIRING_TOKEN);
+
+      await generatePdf(makePdfRequest(), 'coll-trans-2', 2, tm);
+      expect(tm.currentToken).toBe('Bearer recovered');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
     });
   });
 });
