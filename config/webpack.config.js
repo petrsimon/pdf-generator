@@ -98,6 +98,10 @@ const moduleFederationPlugin = new container.ModuleFederationPlugin({
       requiredVersion: '*',
       singleton: true,
     },
+    'react-intl': {
+      requiredVersion: '*',
+      singleton: true,
+    },
     'react-router-dom': {
       requiredVersion: '*',
       singleton: true,

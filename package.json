@@ -43,6 +43,7 @@
     "puppeteer-cluster": "^0.25.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-intl": "^10.1.14",
     "sanitize-html": "^2.17.3",
     "styled-components": "^6.4.0",
     "utf-8-validate": "^6.0.6",

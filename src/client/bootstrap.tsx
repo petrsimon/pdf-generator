@@ -16,6 +16,7 @@ import {
 import { resolveInternalRouteKey } from '../common/integrationEndpoints';
 
 import 'react/jsx-runtime';
+import 'react-intl';
 
 declare global {
   interface Window {
