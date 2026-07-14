@@ -8,6 +8,11 @@ import config from '../common/config';
 import router from './routes/routes';
 import identityMiddleware from '../middleware/identity-middleware';
 import { requestLogger, apiLogger } from '../common/logging';
+import {
+  logStartup,
+  logShutdown,
+  logSecurityEvent,
+} from '../common/securityLog';
 import PdfCache from '../common/pdfCache';
 import { store, StoreType } from '../common/store/store';
 import { consumeMessages } from '../common/kafka';
@@ -39,10 +44,18 @@ server.setMaxListeners(20);
 
 server.listen(PORT, () => {
   apiLogger.info(`Listening on port ${PORT}`);
+  logStartup(PORT);
   consumeMessages(UPDATE_TOPIC).catch((error: unknown) => {
     apiLogger.error(`${error}`);
   });
 });
+
+// Graceful shutdown logging (EOI-5)
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    logShutdown(signal);
+  });
+}
 
 // setup keep alive timeout
 server.keepAliveTimeout = 60 * 1000 + 1000; // 61 s
@@ -53,6 +66,16 @@ process.on(
   'unhandledRejection',
   (reason: unknown, promise: Promise<unknown>) => {
     apiLogger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    logSecurityEvent(
+      {
+        action: 'ERROR',
+        resource_type: 'process',
+        resource_id: 'crc-pdf-generator',
+        outcome: 'failure',
+        principal: { type: 'system' },
+      },
+      `Unhandled rejection: ${reason}`,
+    );
     // Don't exit in production - log and continue
     // This prevents process crashes from async errors in PDF generation
   },
@@ -60,6 +83,16 @@ process.on(
 
 process.on('uncaughtException', (error: Error) => {
   apiLogger.error('Uncaught Exception:', error);
+  logSecurityEvent(
+    {
+      action: 'ERROR',
+      resource_type: 'process',
+      resource_id: 'crc-pdf-generator',
+      outcome: 'failure',
+      principal: { type: 'system' },
+    },
+    `Uncaught exception: ${error.message}`,
+  );
   // Log the error but don't exit - let container orchestration handle restarts
 });
 
