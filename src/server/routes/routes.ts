@@ -17,6 +17,10 @@ import {
   GeneratePayload,
 } from '../../common/types';
 import { apiLogger, hpmLogger } from '../../common/logging';
+import {
+  logSecurityEvent,
+  getPrincipalFromContext,
+} from '../../common/securityLog';
 import { store } from '../../common/store';
 import { cluster } from '../cluster';
 import { generatePdf } from '../../browser/clusterTask';
@@ -235,12 +239,29 @@ router.post(
         generatePdf(pdfDetails, collectionId, x + 1, authState);
       }
 
+      logSecurityEvent({
+        action: 'CREATE',
+        resource_type: 'pdf_collection',
+        resource_id: collectionId,
+        outcome: 'success',
+        principal: getPrincipalFromContext(),
+      });
       return res.status(202).send({ statusID: collectionId });
     } catch (error: unknown) {
       // Only return a 500 error. 400's will be served by the status endpoint.
       // We cannot validate a payload's parameters until the browser is running
       apiLogger.error(`Internal Server error: ${JSON.stringify(error)}`);
       pdfCache.invalidateCollection(collectionId, JSON.stringify(error));
+      logSecurityEvent(
+        {
+          action: 'CREATE',
+          resource_type: 'pdf_collection',
+          resource_id: collectionId,
+          outcome: 'failure',
+          principal: getPrincipalFromContext(),
+        },
+        `Internal server error: ${JSON.stringify(error)}`,
+      );
       res.status(500).send({
         error: {
           status: 500,
@@ -320,6 +341,16 @@ router.get(
       apiLogger.debug(ID);
       const pdfReadable = await store.downloadPDF(ID);
       if (pdfReadable === undefined) {
+        logSecurityEvent(
+          {
+            action: 'READ',
+            resource_type: 'pdf_document',
+            resource_id: ID,
+            outcome: 'failure',
+            principal: getPrincipalFromContext(),
+          },
+          'PDF not found',
+        );
         return res.status(404).send({
           error: {
             status: 404,
@@ -328,10 +359,27 @@ router.get(
           },
         });
       }
+      logSecurityEvent({
+        action: 'READ',
+        resource_type: 'pdf_document',
+        resource_id: ID,
+        outcome: 'success',
+        principal: getPrincipalFromContext(),
+      });
       res.setHeader('Content-Disposition', `inline; filename="${ID}.pdf"`);
       res.setHeader('Content-Type', 'application/pdf');
       pdfReadable.pipe(res);
     } catch (error) {
+      logSecurityEvent(
+        {
+          action: 'READ',
+          resource_type: 'pdf_document',
+          resource_id: ID,
+          outcome: 'failure',
+          principal: getPrincipalFromContext(),
+        },
+        `Error: ${error}`,
+      );
       res.status(400).send({
         error: {
           status: 400,

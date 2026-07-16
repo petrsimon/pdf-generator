@@ -1,12 +1,16 @@
 import httpContext from 'express-http-context';
 import type { Handler } from 'express';
 import { apiLogger } from '../common/logging';
+import { logAuthFailure } from '../common/securityLog';
 
 import config from '../common/config';
 
 const identityMiddleware: Handler = (req, _res, next) => {
   try {
     const rhIdentity = req.header(config.IDENTITY_HEADER_KEY);
+    if (!rhIdentity) {
+      logAuthFailure('Missing x-rh-identity header', req.originalUrl);
+    }
     if (rhIdentity) {
       const identityObject = JSON.parse(
         Buffer.from(rhIdentity, 'base64').toString(),
@@ -40,6 +44,7 @@ const identityMiddleware: Handler = (req, _res, next) => {
     next();
   } catch (error) {
     apiLogger.error(error);
+    logAuthFailure('Failed to decode identity header', req.originalUrl);
     next();
   }
 };
