@@ -24,6 +24,7 @@ jest.mock('../common/logging', () => ({
   apiLogger: {
     debug: jest.fn(),
     error: jest.fn(),
+    warn: jest.fn(),
   },
 }));
 
@@ -224,6 +225,24 @@ describe('TokenManager', () => {
 
     const result = await tm.getValidToken();
     expect(result).toBeUndefined();
+  });
+
+  it('returns expiring token and warns on transient failure (503)', async () => {
+    const { apiLogger } = jest.requireMock('../common/logging');
+    const exp = Math.floor(Date.now() / 1000) + 10;
+    const token = `Bearer ${makeJwt({ exp })}`;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: () => Promise.resolve('service unavailable'),
+    });
+    const tm = new TokenManager(token, 'refresh-token');
+
+    const result = await tm.getValidToken();
+    expect(result).toBe(token);
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      '[token-refresh] Transient failure, proceeding with expiring token',
+    );
   });
 
   it('returns token as-is when no refresh token', async () => {

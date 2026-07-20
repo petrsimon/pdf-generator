@@ -100,6 +100,8 @@ export class TokenManager {
               '[token-refresh] Permanent failure, skipping future refreshes',
             );
             return null;
+          } else if (result && result.error === 'transient') {
+            apiLogger.warn('[token-refresh] Transient failure, proceeding with expiring token');
           }
           return this.token ?? null;
         })
