@@ -9,13 +9,13 @@ import renderTemplate from '../render-template';
 import config from '../../common/config';
 import previewPdf from '../../browser/previewPDF';
 import {
-  AuthState,
   GenerateHandlerRequest,
   PdfRequestBody,
   PuppeteerBrowserRequest,
   PreviewHandlerRequest,
   GeneratePayload,
 } from '../../common/types';
+import { TokenManager } from '../../browser/tokenRefresh';
 import { apiLogger, hpmLogger } from '../../common/logging';
 import {
   logSecurityEvent,
@@ -218,25 +218,26 @@ router.post(
 
     try {
       const requiredCalls = requestConfigs.length;
-      const authState: AuthState = {
-        authHeader:
-          httpContext.get(config.AUTHORIZATION_CONTEXT_KEY) ||
+      const tokenManager = new TokenManager(
+        httpContext.get(config.AUTHORIZATION_CONTEXT_KEY) ||
           process.env.MOCK_TOKEN,
-        refreshToken: httpContext.get(config.REFRESH_TOKEN_CONTEXT_KEY),
-        authCookie: httpContext.get(config.JWT_COOKIE_NAME),
-      };
+        httpContext.get(config.REFRESH_TOKEN_CONTEXT_KEY),
+      );
+      const authCookie: string | undefined = httpContext.get(
+        config.JWT_COOKIE_NAME,
+      );
       if (requiredCalls === 1) {
         const pdfDetails = getPdfRequestBody(requestConfigs[0]);
         apiLogger.debug(`Single call to generator queued for ${collectionId}`);
         pdfCache.setExpectedLength(collectionId, requiredCalls);
-        generatePdf(pdfDetails, collectionId, 1, authState);
+        generatePdf(pdfDetails, collectionId, 1, tokenManager, authCookie);
         return res.status(202).send({ statusID: collectionId });
       }
       pdfCache.setExpectedLength(collectionId, requiredCalls);
       apiLogger.debug(`Queueing ${requiredCalls} for ${collectionId}`);
       for (let x = 0; x < Number(requiredCalls); x++) {
         const pdfDetails = getPdfRequestBody(requestConfigs[x]);
-        generatePdf(pdfDetails, collectionId, x + 1, authState);
+        generatePdf(pdfDetails, collectionId, x + 1, tokenManager, authCookie);
       }
 
       logSecurityEvent({

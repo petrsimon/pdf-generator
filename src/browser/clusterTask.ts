@@ -1,5 +1,5 @@
 import os from 'os';
-import { AuthState, PdfRequestBody } from '../common/types';
+import { PdfRequestBody } from '../common/types';
 import { apiLogger } from '../common/logging';
 import { pageHeight, pageWidth, setWindowProperty } from './helpers';
 import PdfCache, { PdfStatus } from '../common/pdfCache';
@@ -11,7 +11,7 @@ import { PdfGenerationError } from '../server/errors';
 import { cluster } from '../server/cluster';
 import { Page } from 'puppeteer';
 import { PDFDocument } from 'pdf-lib';
-import { isTokenExpiringSoon, refreshAccessToken } from './tokenRefresh';
+import { TokenManager } from './tokenRefresh';
 
 const BROWSER_TIMEOUT = 120_000;
 
@@ -37,7 +37,8 @@ async function runPageTask(
   collectionId: string,
   order: number,
   pdfPath: string,
-  authState: AuthState,
+  tokenManager: TokenManager,
+  authCookie?: string,
 ): Promise<void> {
   await cluster.queue(
     { collectionId, componentId, order },
@@ -70,12 +71,7 @@ async function runPageTask(
           apiLogger.debug(`[Headless log] ${msg.text()}`);
         });
 
-        // Track 401 responses during page load and API requests for token refresh
-        let unauthorized = false;
         page.on('response', async (response) => {
-          if (response.status() === 401) {
-            unauthorized = true;
-          }
           if (response.status() >= 400) {
             let body = '';
             try {
@@ -100,27 +96,7 @@ async function runPageTask(
           }),
         );
 
-        // Refresh token if expiring before setting headers
-        // Updated authState.authHeader will be picked up when extraHeaders is built below
-        if (
-          authState.authHeader &&
-          isTokenExpiringSoon(authState.authHeader.replace(/^Bearer\s+/i, ''))
-        ) {
-          if (!authState.refreshToken) {
-            apiLogger.warn(
-              `[token-refresh] Access token expiring for component ${componentId} but no refresh token available`,
-            );
-          } else {
-            apiLogger.debug(
-              `[token-refresh] Refreshing before component ${componentId}`,
-            );
-            const refreshed = await refreshAccessToken(authState.refreshToken);
-            if (refreshed) {
-              authState.authHeader = refreshed.accessToken;
-            }
-            // tokenRefresh.ts already logs specific failure reason
-          }
-        }
+        const authHeader = await tokenManager.getValidToken();
 
         const extraHeaders: Record<string, string> = {};
         if (identity) {
@@ -132,14 +108,14 @@ async function runPageTask(
             JSON.stringify(fetchDataParams);
         }
 
-        if (authState.authHeader) {
-          extraHeaders[config.AUTHORIZATION_CONTEXT_KEY] = authState.authHeader;
+        if (authHeader) {
+          extraHeaders[config.AUTHORIZATION_CONTEXT_KEY] = authHeader;
         }
 
-        if (authState.authCookie) {
+        if (authCookie) {
           await page.setCookie({
             name: config.JWT_COOKIE_NAME,
-            value: authState.authCookie,
+            value: authCookie,
             domain: 'localhost',
           });
         }
@@ -198,28 +174,6 @@ async function runPageTask(
         await page.waitForNetworkIdle({
           idleTime: 1000,
         });
-
-        // If 401 detected from API requests and refresh token available, update headers for subsequent requests
-        if (unauthorized) {
-          if (!authState.refreshToken) {
-            apiLogger.warn(
-              `[token-refresh] 401 detected for component ${componentId} but no refresh token available`,
-            );
-          } else {
-            apiLogger.debug(
-              `[token-refresh] 401 detected for component ${componentId}, refreshing token for subsequent requests`,
-            );
-            const refreshed = await refreshAccessToken(authState.refreshToken);
-            if (refreshed) {
-              authState.authHeader = refreshed.accessToken;
-              extraHeaders[config.AUTHORIZATION_CONTEXT_KEY] =
-                refreshed.accessToken;
-              await page.setExtraHTTPHeaders(extraHeaders);
-            }
-            // tokenRefresh.ts already logs specific failure reason
-          }
-        }
-
         const pageStatus = pageResponse?.status();
 
         const error = await page.evaluate(() => {
@@ -315,8 +269,16 @@ export const generatePdf = async (
   pdfRequest: PdfRequestBody,
   collectionId: string,
   order: number,
-  authState: AuthState,
+  tokenManager: TokenManager,
+  authCookie?: string,
 ): Promise<void> => {
   const pdfPath = getNewPdfName(pdfRequest.uuid);
-  await runPageTask(pdfRequest, collectionId, order, pdfPath, authState);
+  await runPageTask(
+    pdfRequest,
+    collectionId,
+    order,
+    pdfPath,
+    tokenManager,
+    authCookie,
+  );
 };
