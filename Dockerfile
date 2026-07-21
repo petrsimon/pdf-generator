@@ -29,13 +29,15 @@ FROM registry.access.redhat.com/ubi9/nodejs-22-minimal:1-1784124526@sha256:e8219
 USER 0
 WORKDIR /pdf-gen
 
-# Install Chrome runtime dependencies
+# Install Chrome runtime dependencies and strip base-image npm/nodemon
+# (not needed at runtime; their vulnerable transitive deps trigger grype)
 RUN microdnf install -y bzip2 fontconfig pango \
   libXcomposite libXcursor libXdamage \
   libXext libXi libXtst cups-libs \
   libXScrnSaver libXrandr alsa-lib \
   atk gtk3 libdrm libgbm libxshmfence \
-  nss && microdnf clean all
+  nss && microdnf clean all \
+ && rm -rf /usr/lib/node_modules /usr/bin/npm /usr/bin/npx /usr/bin/nodemon
 
 # Copy application artifacts from builder
 COPY --from=builder /pdf-gen/dist ./dist
