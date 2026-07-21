@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM registry.access.redhat.com/ubi9/nodejs-22:1-1784151010@sha256:14feec969e115d7fc6c9f6526873962c28adc63b802f9a1eb4a879c1a001e5ef AS builder
+FROM registry.access.redhat.com/ubi9/nodejs-22:1-1784594179@sha256:4a8f492a5a42da3a934b289360396a975627317abdfccf48ff1f373c6a983031 AS builder
 
 USER 0
 WORKDIR /pdf-gen
@@ -18,7 +18,7 @@ COPY . .
 
 # Download pinned Chrome, validate build, produce production bundle
 ENV NODE_ENV=production
-RUN npx @puppeteer/browsers install chrome@150.0.7871.124 --path /opt/app-root/src/.cache/puppeteer \
+RUN npx @puppeteer/browsers install chrome@150.0.7871.125 --path /opt/app-root/src/.cache/puppeteer \
  && node circular.js \
  && npm run build \
  && npm prune --omit=dev
