@@ -15,8 +15,8 @@ RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci
 # Copy source after dependency install
 COPY . .
 
-# Download Chrome 149.0.7827.53 for PDF generation (patches CVEs in bundled 149.0.7827.22)
-RUN npx @puppeteer/browsers install chrome@149.0.7827.103 --path /opt/app-root/src/.cache/puppeteer
+# Download Chrome 150.0.7871.124 (puppeteer@25.3.0 bundles 150.0.7871.24 which is pre-patch; stable CVE fix landed in .46)
+RUN npx @puppeteer/browsers install chrome@150.0.7871.124 --path /opt/app-root/src/.cache/puppeteer
 
 # Check for circular dependencies
 RUN node circular.js
