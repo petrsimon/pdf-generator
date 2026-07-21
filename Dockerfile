@@ -3,14 +3,17 @@ FROM registry.access.redhat.com/ubi9/nodejs-22:1-1784151010@sha256:14feec969e115
 
 USER 0
 WORKDIR /pdf-gen
-COPY . .
 RUN mkdir -p bin
 
 # Install build tools for native npm modules (node-gyp)
 RUN dnf install -y python3 make gcc-c++ git && dnf clean all
 
-# Install npm dependencies from lockfile (skip default Chrome download)
+# Install npm dependencies from lockfile — separate layer so code changes don't bust npm cache
+COPY package*.json ./
 RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci
+
+# Copy source after dependency install
+COPY . .
 
 # Download Chrome 149.0.7827.53 for PDF generation (patches CVEs in bundled 149.0.7827.22)
 RUN npx @puppeteer/browsers install chrome@149.0.7827.103 --path /opt/app-root/src/.cache/puppeteer
@@ -21,6 +24,10 @@ RUN node circular.js
 # Build the application
 ENV NODE_ENV=production
 RUN npm run build
+
+# Drop devDependencies — only puppeteer is required at runtime (webpack externalizes it);
+# everything else is bundled into dist/server.js
+RUN npm prune --omit=dev
 
 # Stage 2: Runtime
 FROM registry.access.redhat.com/ubi9/nodejs-22-minimal:1-1784124526@sha256:e821984ab8265a8b8f46b01e9595a7633decc75813d34a9dce99cc42430af6ec
