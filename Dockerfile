@@ -1,5 +1,5 @@
 # Stage 1: Build the application
-FROM registry.access.redhat.com/hi/nodejs:22-builder AS builder
+FROM registry.access.redhat.com/hi/nodejs:22-builder@sha256:8899348361f9a222b2eb51bff6a6b328e8de58910a861161b007781ea57905ce AS builder
 
 USER 0
 WORKDIR /pdf-gen
@@ -27,7 +27,7 @@ RUN npm prune --omit=dev
 # UBI9 base is used here because the hardened builder image lacks the full
 # set of X11/GTK repos needed for Chrome dependencies. This stage is
 # intermediate and discarded after build.
-FROM registry.access.redhat.com/ubi9/ubi:latest AS chrome-deps
+FROM registry.access.redhat.com/ubi9/ubi:latest@sha256:2a6bd6971e6026177b2439655282660519198870e9063c4a03a208de88be2e9e AS chrome-deps
 
 # Snapshot installed packages before adding Chrome deps
 RUN rpm -qa --queryformat '%{NAME}\n' | sort > /pkgs-before.txt
@@ -65,7 +65,7 @@ RUN rpm -qa --queryformat '%{NAME}\n' | sort > /pkgs-after.txt && \
     fi
 
 # Stage 3: Runtime (hardened distroless image)
-FROM registry.access.redhat.com/hi/nodejs:22
+FROM registry.access.redhat.com/hi/nodejs:22@sha256:cf26fa86a695e51b233a899a11e8b62bbe7ffb97bdaaaed3977cfc404d4be7a9
 
 WORKDIR /pdf-gen
 
