@@ -54,7 +54,15 @@ RUN rpm -qa --queryformat '%{NAME}\n' | sort > /pkgs-after.txt && \
         mkdir -p "/chrome-rootfs$(dirname "$f")" && \
         cp -a "$f" "/chrome-rootfs$f" 2>/dev/null || true; \
       fi; \
-    done
+    done && \
+    # Merge /usr/sbin into /usr/bin for hummingbird image compatibility.
+    # Hummingbird images symlink /usr/sbin → /usr/bin; Docker COPY cannot
+    # write into symlink targets, so consolidate before the final COPY.
+    if [ -d /chrome-rootfs/usr/sbin ]; then \
+      mkdir -p /chrome-rootfs/usr/bin && \
+      cp -a /chrome-rootfs/usr/sbin/. /chrome-rootfs/usr/bin/ 2>/dev/null || true && \
+      rm -rf /chrome-rootfs/usr/sbin; \
+    fi
 
 # Stage 3: Runtime (hardened distroless image)
 FROM registry.access.redhat.com/hi/nodejs:22
