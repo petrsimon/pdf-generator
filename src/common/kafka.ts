@@ -88,16 +88,19 @@ const KafkaClient = () => {
 const pdfCache = PdfCache.getInstance();
 const kafka = KafkaClient();
 
-export async function produceMessage(topic: string, message: unknown) {
-  const producer = kafka.producer();
+const producer = kafka.producer();
+let connected: Promise<void> | null = null;
+function ensureConnected() {
+  if (!connected) connected = producer.connect();
+  return connected;
+}
 
-  await producer.connect();
+export async function produceMessage(topic: string, message: unknown) {
+  await ensureConnected();
   await producer.send({
     topic: topic,
     messages: [{ value: JSON.stringify(message) }],
   });
-
-  await producer.disconnect();
 }
 
 export async function consumeMessages(topic: string) {
