@@ -7,7 +7,7 @@ COPY . .
 RUN mkdir -p bin
 
 # Install build tools for native npm modules (node-gyp)
-RUN dnf install -y python3 make gcc-c++ git && dnf clean all
+RUN dnf install -y python3 make gcc-c++ git unzip && dnf clean all
 
 # Install npm dependencies from lockfile (skip default Chrome download)
 RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci
