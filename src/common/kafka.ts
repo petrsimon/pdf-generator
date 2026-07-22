@@ -91,8 +91,21 @@ const kafka = KafkaClient();
 const producer = kafka.producer();
 let connected: Promise<void> | null = null;
 function ensureConnected() {
-  if (!connected) connected = producer.connect();
+  if (!connected) {
+    connected = producer.connect().catch((err) => {
+      connected = null;
+      throw err;
+    });
+  }
   return connected;
+}
+
+export async function disconnectProducer() {
+  if (connected) {
+    await connected.catch(() => {});
+    connected = null;
+    await producer.disconnect();
+  }
 }
 
 export async function produceMessage(topic: string, message: unknown) {
