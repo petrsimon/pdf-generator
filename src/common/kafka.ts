@@ -91,8 +91,29 @@ const kafka = KafkaClient();
 const producer = kafka.producer();
 let connected: Promise<void> | null = null;
 function ensureConnected() {
-  if (!connected) connected = producer.connect();
+  if (!connected) {
+    connected = producer.connect().catch((err) => {
+      connected = null;
+      throw err;
+    });
+  }
   return connected;
+}
+
+const DISCONNECT_TIMEOUT_MS = 5_000;
+
+export async function disconnectProducer() {
+  if (connected) {
+    const timeout = new Promise<void>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('Kafka connect timed out during shutdown')),
+        DISCONNECT_TIMEOUT_MS,
+      ),
+    );
+    await Promise.race([connected, timeout]).catch(() => {});
+    connected = null;
+    await producer.disconnect();
+  }
 }
 
 export async function produceMessage(topic: string, message: unknown) {
