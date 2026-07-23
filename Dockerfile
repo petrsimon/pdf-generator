@@ -12,8 +12,8 @@ RUN dnf install -y python3 make gcc-c++ git unzip && dnf clean all
 # Install npm dependencies from lockfile (skip default Chrome download)
 RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci
 
-# Download Chrome 149.0.7827.103 for PDF generation (patches CVEs in bundled 149.0.7827.22)
-RUN npx @puppeteer/browsers install chrome@149.0.7827.103 --path /opt/app-root/src/.cache/puppeteer
+# Download Chrome 150.0.7871.181 for PDF generation (patches CVEs in bundled 149.0.7827.22)
+RUN npx @puppeteer/browsers install chrome@150.0.7871.181 --path /opt/app-root/src/.cache/puppeteer
 
 # Check for circular dependencies
 RUN node circular.js
