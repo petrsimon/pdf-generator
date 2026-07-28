@@ -7,6 +7,7 @@ import { Router, Request } from 'express';
 import httpContext from 'express-http-context';
 import renderTemplate from '../render-template';
 import config from '../../common/config';
+import { MANIFEST_ALLOWED_ORIGINS, validatePayload } from '../utils';
 import previewPdf from '../../browser/previewPDF';
 import {
   GenerateHandlerRequest,
@@ -183,6 +184,24 @@ router.get('/puppeteer', (req: PuppeteerBrowserRequest, res, _next) => {
     }
 
     const HTMLTemplate: string = renderTemplate(payload);
+    // Defense-in-depth: restrict what the headless browser page can load/execute.
+    const allowedOriginsWithScheme = [...MANIFEST_ALLOWED_ORIGINS]
+      .map((host) => `https://${host}`)
+      .join(' ');
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'none'",
+        `script-src 'self' 'unsafe-inline' ${allowedOriginsWithScheme}`,
+        `style-src 'self' 'unsafe-inline' ${allowedOriginsWithScheme}`,
+        `img-src 'self' data: blob: ${allowedOriginsWithScheme}`,
+        `font-src 'self' data: ${allowedOriginsWithScheme}`,
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'none'",
+      ].join('; '),
+    );
     res.send(HTMLTemplate);
   } catch (error) {
     // render error to DOM to retrieve the error content from puppeteer
@@ -209,6 +228,19 @@ router.post(
     const requestConfigs = Array.isArray(req.body.payload)
       ? req.body.payload
       : [req.body.payload];
+
+    for (const payload of requestConfigs) {
+      const validationError = validatePayload(payload);
+      if (validationError) {
+        return res.status(400).json({
+          error: {
+            status: 400,
+            statusText: 'Bad Request',
+            description: `Invalid field "${validationError.field}": ${validationError.message}`,
+          },
+        });
+      }
+    }
 
     const configHeaders: string | string[] | undefined =
       req.headers[config?.OPTIONS_HEADER_NAME];
