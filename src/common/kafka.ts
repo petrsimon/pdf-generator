@@ -90,6 +90,9 @@ const kafka = KafkaClient();
 
 const producer = kafka.producer();
 let connected: Promise<void> | null = null;
+let shuttingDown = false;
+const inflightSends = new Set<Promise<unknown>>();
+
 function ensureConnected() {
   if (!connected) {
     connected = producer.connect().catch((err) => {
@@ -103,6 +106,7 @@ function ensureConnected() {
 const DISCONNECT_TIMEOUT_MS = 5_000;
 
 export async function disconnectProducer() {
+  shuttingDown = true;
   if (connected) {
     const timeout = new Promise<void>((_, reject) =>
       setTimeout(
@@ -112,16 +116,26 @@ export async function disconnectProducer() {
     );
     await Promise.race([connected, timeout]).catch(() => {});
     connected = null;
-    await producer.disconnect();
   }
+  await Promise.allSettled([...inflightSends]);
+  await producer.disconnect();
 }
 
 export async function produceMessage(topic: string, message: unknown) {
+  if (shuttingDown) {
+    throw new Error('Kafka producer is shutting down');
+  }
   await ensureConnected();
-  await producer.send({
+  const send = producer.send({
     topic: topic,
     messages: [{ value: JSON.stringify(message) }],
   });
+  inflightSends.add(send);
+  try {
+    await send;
+  } finally {
+    inflightSends.delete(send);
+  }
 }
 
 export async function consumeMessages(topic: string) {
