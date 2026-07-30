@@ -40,6 +40,14 @@ function renderTemplate(payload: GeneratePayload) {
     { encoding: 'utf-8' },
   );
 
+  // Only expose endpoint keys to the browser — never leak internal hostnames/ports.
+  const endpointKeys = Object.fromEntries(
+    Object.keys(instanceConfig.endpoints).map((k) => [
+      k,
+      { app: instanceConfig.endpoints[k]?.app ?? k, name: '' },
+    ]),
+  );
+
   const template = baseTemplate.replace(
     '<script id="initial-state"></script>',
     `<script id="initial-state">window.__initialState__ = ${JSON.stringify(
@@ -47,7 +55,7 @@ function renderTemplate(payload: GeneratePayload) {
       null,
       2,
     )};
-window.__endpoints__ = ${JSON.stringify(instanceConfig.endpoints, null, 2)}
+window.__endpoints__ = ${JSON.stringify(endpointKeys, null, 2)}
 window.IS_PRODUCTION = ${instanceConfig.IS_PRODUCTION}</script>`,
   );
 

@@ -432,6 +432,16 @@ router.post(
 );
 
 router.get(`/preview`, async (req: PreviewHandlerRequest, res) => {
+  const validationError = validatePayload(req.query);
+  if (validationError) {
+    return res.status(400).json({
+      error: {
+        status: 400,
+        statusText: 'Bad Request',
+        description: `Invalid field "${validationError.field}": ${validationError.message}`,
+      },
+    });
+  }
   addProxy(req as any);
   const pdfUrl = new URL(`http://localhost:${config?.webPort}/puppeteer`);
   pdfUrl.searchParams.append('manifestLocation', req.query.manifestLocation);
