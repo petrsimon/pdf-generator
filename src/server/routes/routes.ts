@@ -158,7 +158,7 @@ function getPdfRequestBody(payload: GeneratePayload): PdfRequestBody {
     authCookie: httpContext.get(config.JWT_COOKIE_NAME),
     authHeader:
       httpContext.get(config.AUTHORIZATION_CONTEXT_KEY) ||
-      process.env.MOCK_TOKEN,
+      (!config.IS_PRODUCTION ? process.env.MOCK_TOKEN : undefined),
     refreshToken: httpContext.get(config.REFRESH_TOKEN_CONTEXT_KEY),
     identity: httpContext.get(config?.IDENTITY_HEADER_KEY),
     uuid,
@@ -220,7 +220,7 @@ router.post(
       const requiredCalls = requestConfigs.length;
       const tokenManager = new TokenManager(
         httpContext.get(config.AUTHORIZATION_CONTEXT_KEY) ||
-          process.env.MOCK_TOKEN,
+          (!config.IS_PRODUCTION ? process.env.MOCK_TOKEN : undefined),
         httpContext.get(config.REFRESH_TOKEN_CONTEXT_KEY),
       );
       const authCookie: string | undefined = httpContext.get(
