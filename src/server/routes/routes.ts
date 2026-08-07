@@ -222,7 +222,6 @@ router.get(`${config?.APIPrefix}/v1/hello`, (_req, res) => {
 router.post(
   `${config?.APIPrefix}/v2/create`,
   async (req: GenerateHandlerRequest, res) => {
-    addProxy(req);
     const collectionId = crypto.randomUUID();
     // for testing purposes
     const requestConfigs = Array.isArray(req.body.payload)
@@ -241,6 +240,8 @@ router.post(
         });
       }
     }
+
+    addProxy(req);
 
     const configHeaders: string | string[] | undefined =
       req.headers[config?.OPTIONS_HEADER_NAME];
