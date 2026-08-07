@@ -5,16 +5,18 @@ const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 const { merge } = require('webpack-merge');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 const baseConfig = {
   mode: process.env.NODE_ENV || 'development',
-  devtool: process.env.NODE_ENV === 'production' ? 'hidden-source-map' : 'source-map',
+  devtool: isProduction ? 'hidden-source-map' : 'source-map',
   resolve: {
     extensions: ['.ts', '.tsx', '.js'],
   },
 };
 
 const serverConfig = {
-  devtool: 'eval-source-map',
+  ...(isProduction ? {} : { devtool: 'eval-source-map' }),
   name: 'server',
   target: 'node',
   externalsPresets: {
