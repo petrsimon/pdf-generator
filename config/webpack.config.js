@@ -7,7 +7,7 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 const baseConfig = {
   mode: process.env.NODE_ENV || 'development',
-  devtool: 'source-map',
+  devtool: process.env.NODE_ENV === 'production' ? 'hidden-source-map' : 'source-map',
   resolve: {
     extensions: ['.ts', '.tsx', '.js'],
   },
